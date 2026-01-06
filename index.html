@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Minimalist YouTube Summarizer</title>
+        <style>
+            :root {
+                --bg: #ffffff;
+                --text: #333333;
+                --accent: #2563eb;
+                --accent-hover: #1d4ed8;
+                --border: #e5e7eb;
+                --card-bg: #f9fafb;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                background-color: var(--bg);
+                color: var(--text);
+                line-height: 1.6;
+                display: flex;
+                justify-content: center;
+                min-height: 100vh;
+                padding: 2rem 1rem;
+                margin: 0;
+            }
+
+            .container {
+                width: 100%;
+                max-width: 600px;
+            }
+
+            /* Header & Input Area */
+            h1 {
+                font-size: 1.5rem;
+                margin-bottom: 1.5rem;
+                font-weight: 700;
+            }
+
+            .input-group {
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 1.5rem;
+            }
+
+            input[type="url"] {
+                flex: 1;
+                padding: 0.75rem;
+                border: 1px solid var(--border);
+                border-radius: 6px;
+                font-size: 1rem;
+                outline: none;
+                transition: border-color 0.2s;
+            }
+
+            input[type="url"]:focus {
+                border-color: var(--accent);
+            }
+
+            button {
+                padding: 0.75rem 1.5rem;
+                background-color: var(--accent);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 1rem;
+                transition: background-color 0.2s;
+            }
+
+            button:hover {
+                background-color: var(--accent-hover);
+            }
+            button:disabled {
+                background-color: #93c5fd;
+                cursor: not-allowed;
+            }
+
+            /* Status & Error Messages */
+            .status {
+                margin-bottom: 1rem;
+                font-size: 0.9rem;
+                color: #666;
+                min-height: 1.5rem;
+            }
+            .error {
+                color: #dc2626;
+            }
+
+            /* Results Area */
+            #results {
+                display: none;
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+
+            .section {
+                background: var(--card-bg);
+                padding: 1.5rem;
+                border-radius: 8px;
+                border: 1px solid var(--border);
+            }
+
+            .section h2 {
+                font-size: 1.1rem;
+                margin-top: 0;
+                margin-bottom: 0.75rem;
+                color: var(--accent);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+
+            .section ul {
+                padding-left: 1.25rem;
+                margin: 0;
+            }
+            .section li {
+                margin-bottom: 0.5rem;
+            }
+
+            /* Loading Spinner */
+            .spinner {
+                display: inline-block;
+                width: 1rem;
+                height: 1rem;
+                border: 2px solid rgba(37, 99, 235, 0.3);
+                border-radius: 50%;
+                border-top-color: var(--accent);
+                animation: spin 1s ease-in-out infinite;
+                margin-right: 0.5rem;
+                vertical-align: middle;
+            }
+
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main class="container">
+            <h1>YouTube Summarizer</h1>
+
+            <div class="input-group">
+                <input
+                    type="url"
+                    id="videoUrl"
+                    placeholder="Paste YouTube URL here..."
+                    required
+                />
+                <button id="summarizeBtn">Summarize</button>
+            </div>
+
+            <div id="status" class="status"></div>
+
+            <div id="results">
+                <div class="section">
+                    <h2>Summary</h2>
+                    <div id="summary-content"></div>
+                </div>
+
+                <div class="section">
+                    <h2>Key Terms</h2>
+                    <ul id="terms-content"></ul>
+                </div>
+
+                <div class="section">
+                    <h2>Important Points</h2>
+                    <ul id="points-content"></ul>
+                </div>
+            </div>
+        </main>
+
+        <script>
+            const btn = document.getElementById("summarizeBtn");
+            const input = document.getElementById("videoUrl");
+            const statusEl = document.getElementById("status");
+            const resultsEl = document.getElementById("results");
+
+            // Helper to update status text
+            function setStatus(msg, type = "normal") {
+                statusEl.textContent = msg;
+                statusEl.className =
+                    "status " + (type === "error" ? "error" : "");
+            }
+
+            // Helper to show loading state
+            function setLoading(isLoading) {
+                btn.disabled = isLoading;
+                if (isLoading) {
+                    btn.innerHTML =
+                        '<span class="spinner"></span> Processing...';
+                } else {
+                    btn.textContent = "Summarize";
+                }
+            }
+
+            btn.addEventListener("click", async () => {
+                const url = input.value.trim();
+                if (!url) {
+                    setStatus("Please enter a valid YouTube URL.", "error");
+                    return;
+                }
+
+                // Reset UI
+                setStatus("");
+                resultsEl.style.display = "none";
+                document.getElementById("summary-content").innerHTML = "";
+                document.getElementById("terms-content").innerHTML = "";
+                document.getElementById("points-content").innerHTML = "";
+                setLoading(true);
+
+                try {
+                    // Call our Vercel Serverless Function
+                    const response = await fetch("/api/summarize", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ url }),
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        throw new Error(
+                            errData.error || "Failed to fetch summary",
+                        );
+                    }
+
+                    const data = await response.json();
+
+                    // Render Summary
+                    document.getElementById("summary-content").textContent =
+                        data.summary;
+
+                    // Render Key Terms
+                    const termsList = document.getElementById("terms-content");
+                    data.terms.forEach((term) => {
+                        const li = document.createElement("li");
+                        li.textContent = term;
+                        termsList.appendChild(li);
+                    });
+
+                    // Render Important Points
+                    const pointsList =
+                        document.getElementById("points-content");
+                    data.points.forEach((point) => {
+                        const li = document.createElement("li");
+                        li.textContent = point;
+                        pointsList.appendChild(li);
+                    });
+
+                    resultsEl.style.display = "flex";
+                    setStatus("Summary generated successfully.");
+                } catch (error) {
+                    console.error(error);
+                    setStatus(error.message, "error");
+                } finally {
+                    setLoading(false);
+                }
+            });
+        </script>
+    </body>
+</html>
