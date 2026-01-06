@@ -33,7 +33,6 @@
                 max-width: 600px;
             }
 
-            /* Header & Input Area */
             h1 {
                 font-size: 1.5rem;
                 margin-bottom: 1.5rem;
@@ -43,7 +42,7 @@
             .input-group {
                 display: flex;
                 gap: 0.5rem;
-                margin-bottom: 1.5rem;
+                margin-bottom: 1rem;
             }
 
             input[type="url"] {
@@ -80,15 +79,25 @@
                 cursor: not-allowed;
             }
 
-            /* Status & Error Messages */
-            .status {
-                margin-bottom: 1rem;
+            /* Error Box */
+            .status-box {
+                margin-bottom: 1.5rem;
+                padding: 1rem;
+                border-radius: 6px;
                 font-size: 0.9rem;
-                color: #666;
-                min-height: 1.5rem;
+                display: none;
             }
-            .error {
-                color: #dc2626;
+            .status-box.error {
+                display: block;
+                background-color: #fee2e2;
+                color: #991b1b;
+                border: 1px solid #fecaca;
+            }
+            .status-box.success {
+                display: block;
+                background-color: #dcfce7;
+                color: #166534;
+                border: 1px solid #bbf7d0;
             }
 
             /* Results Area */
@@ -122,7 +131,6 @@
                 margin-bottom: 0.5rem;
             }
 
-            /* Loading Spinner */
             .spinner {
                 display: inline-block;
                 width: 1rem;
@@ -134,7 +142,6 @@
                 margin-right: 0.5rem;
                 vertical-align: middle;
             }
-
             @keyframes spin {
                 to {
                     transform: rotate(360deg);
@@ -156,19 +163,18 @@
                 <button id="summarizeBtn">Summarize</button>
             </div>
 
-            <div id="status" class="status"></div>
+            <!-- Status/Error Box -->
+            <div id="status" class="status-box"></div>
 
             <div id="results">
                 <div class="section">
                     <h2>Summary</h2>
                     <div id="summary-content"></div>
                 </div>
-
                 <div class="section">
                     <h2>Key Terms</h2>
                     <ul id="terms-content"></ul>
                 </div>
-
                 <div class="section">
                     <h2>Important Points</h2>
                     <ul id="points-content"></ul>
@@ -182,14 +188,21 @@
             const statusEl = document.getElementById("status");
             const resultsEl = document.getElementById("results");
 
-            // Helper to update status text
-            function setStatus(msg, type = "normal") {
-                statusEl.textContent = msg;
-                statusEl.className =
-                    "status " + (type === "error" ? "error" : "");
+            function clearStatus() {
+                statusEl.className = "status-box";
+                statusEl.style.display = "none";
             }
 
-            // Helper to show loading state
+            function showError(msg) {
+                statusEl.textContent = msg;
+                statusEl.className = "status-box error";
+            }
+
+            function showSuccess(msg) {
+                statusEl.textContent = msg;
+                statusEl.className = "status-box success";
+            }
+
             function setLoading(isLoading) {
                 btn.disabled = isLoading;
                 if (isLoading) {
@@ -203,12 +216,11 @@
             btn.addEventListener("click", async () => {
                 const url = input.value.trim();
                 if (!url) {
-                    setStatus("Please enter a valid YouTube URL.", "error");
+                    showError("Please enter a valid YouTube URL.");
                     return;
                 }
 
-                // Reset UI
-                setStatus("");
+                clearStatus();
                 resultsEl.style.display = "none";
                 document.getElementById("summary-content").innerHTML = "";
                 document.getElementById("terms-content").innerHTML = "";
@@ -216,48 +228,65 @@
                 setLoading(true);
 
                 try {
-                    // Call our Vercel Serverless Function
                     const response = await fetch("/api/summarize", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ url }),
                     });
 
+                    // We read as text first to debug JSON parsing errors
+                    const rawText = await response.text();
+
                     if (!response.ok) {
-                        const errData = await response.json();
+                        let msg = rawText;
+                        try {
+                            const jsonErr = JSON.parse(rawText);
+                            if (jsonErr.error) msg = jsonErr.error;
+                        } catch (e) {
+                            // Not JSON, just use raw text
+                        }
+                        throw new Error(msg);
+                    }
+
+                    // If successful, parse the JSON
+                    let data;
+                    try {
+                        data = JSON.parse(rawText);
+                    } catch (e) {
                         throw new Error(
-                            errData.error || "Failed to fetch summary",
+                            "Server returned invalid data: " +
+                                rawText.substring(0, 100),
                         );
                     }
 
-                    const data = await response.json();
-
-                    // Render Summary
+                    // Render Results
                     document.getElementById("summary-content").textContent =
                         data.summary;
 
-                    // Render Key Terms
                     const termsList = document.getElementById("terms-content");
-                    data.terms.forEach((term) => {
-                        const li = document.createElement("li");
-                        li.textContent = term;
-                        termsList.appendChild(li);
-                    });
+                    if (Array.isArray(data.terms)) {
+                        data.terms.forEach((term) => {
+                            const li = document.createElement("li");
+                            li.textContent = term;
+                            termsList.appendChild(li);
+                        });
+                    }
 
-                    // Render Important Points
                     const pointsList =
                         document.getElementById("points-content");
-                    data.points.forEach((point) => {
-                        const li = document.createElement("li");
-                        li.textContent = point;
-                        pointsList.appendChild(li);
-                    });
+                    if (Array.isArray(data.points)) {
+                        data.points.forEach((point) => {
+                            const li = document.createElement("li");
+                            li.textContent = point;
+                            pointsList.appendChild(li);
+                        });
+                    }
 
                     resultsEl.style.display = "flex";
-                    setStatus("Summary generated successfully.");
+                    showSuccess("Summary generated successfully.");
                 } catch (error) {
                     console.error(error);
-                    setStatus(error.message, "error");
+                    showError(error.message);
                 } finally {
                     setLoading(false);
                 }
